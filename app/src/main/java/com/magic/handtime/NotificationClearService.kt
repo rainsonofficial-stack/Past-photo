@@ -24,7 +24,19 @@ class NotificationClearService : NotificationListenerService() {
 
     fun clearAllNotifications() {
         try {
-            cancelAllNotifications()
+            // Define the package names of the target apps
+            val targetPackages = listOf(
+                "com.android.chrome",
+                "com.magic.performer", // Replace with the actual package name for Performer
+                "com.magic.hacked"     // Replace with the actual package name for Hacked
+            )
+
+            // Loop through active notifications and cancel only the matches
+            activeNotifications?.forEach { sbn ->
+                if (targetPackages.contains(sbn.packageName)) {
+                    cancelNotification(sbn.key)
+                }
+            }
         } catch (e: Exception) { /* listener not bound, ignore */ }
     }
 }
