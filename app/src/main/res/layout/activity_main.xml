@@ -1,0 +1,107 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent">
+
+<LinearLayout
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:padding="24dp">
+
+    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+        android:text="API Link" android:textStyle="bold"/>
+    <EditText android:id="@+id/editApiLink"
+        android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:hint="https://example.com/api/feed/xxxx"/>
+
+    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+        android:layout_marginTop="16dp" android:text="JSON Key to read" android:textStyle="bold"/>
+    <EditText android:id="@+id/editApiKey"
+        android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:hint="value"/>
+
+    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+        android:layout_marginTop="16dp" android:text="Backdate To" android:textStyle="bold"/>
+    <RadioGroup android:id="@+id/radioTimeGroup"
+        android:layout_width="match_parent" android:layout_height="wrap_content">
+        <RadioButton android:id="@+id/radio3h" android:text="3 hours ago"/>
+        <RadioButton android:id="@+id/radio10h" android:text="10 hours ago"/>
+        <RadioButton android:id="@+id/radio24h" android:text="24 hours ago"/>
+        <RadioButton android:id="@+id/radio3d" android:text="3 days ago"/>
+        <RadioButton android:id="@+id/radioCustom" android:text="Custom date/time"/>
+    </RadioGroup>
+
+    <EditText android:id="@+id/editCustomDateTime"
+        android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:hint="yyyy-MM-dd HH:mm:ss" android:visibility="gone"/>
+
+    <Switch android:id="@+id/switchAutoLock"
+        android:layout_width="wrap_content" android:layout_height="wrap_content"
+        android:layout_marginTop="16dp" android:text="Auto-lock phone after"/>
+
+    <Switch android:id="@+id/switchVibrate"
+        android:layout_width="wrap_content" android:layout_height="wrap_content"
+        android:layout_marginTop="8dp" android:text="Vibrate 3x when done"/>
+
+    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+        android:layout_marginTop="16dp" android:text="Text Placement (% margins)" android:textStyle="bold"/>
+
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:orientation="horizontal" android:layout_marginTop="4dp">
+        <EditText android:id="@+id/editMarginLeft"
+            android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1"
+            android:hint="Left %" android:inputType="number" android:layout_marginEnd="4dp"/>
+        <EditText android:id="@+id/editMarginRight"
+            android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1"
+            android:hint="Right %" android:inputType="number" android:layout_marginStart="4dp"/>
+    </LinearLayout>
+
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:orientation="horizontal" android:layout_marginTop="4dp">
+        <EditText android:id="@+id/editMarginTop"
+            android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1"
+            android:hint="Top %" android:inputType="number" android:layout_marginEnd="4dp"/>
+        <EditText android:id="@+id/editMarginBottom"
+            android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1"
+            android:hint="Bottom %" android:inputType="number" android:layout_marginStart="4dp"/>
+    </LinearLayout>
+
+    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+        android:layout_marginTop="16dp" android:text="Text Rotation (degrees, -45 to 45)" android:textStyle="bold"/>
+    <EditText android:id="@+id/editTextRotation"
+        android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:hint="0" android:inputType="numberSigned"/>
+
+    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+        android:layout_marginTop="16dp" android:text="Text Appearance" android:textStyle="bold"/>
+
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:orientation="horizontal" android:layout_marginTop="4dp">
+        <EditText android:id="@+id/editTextColor"
+            android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1"
+            android:hint="#000000" android:layout_marginEnd="4dp"/>
+        <EditText android:id="@+id/editTextOpacity"
+            android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1"
+            android:hint="Opacity % (0-100)" android:inputType="number" android:layout_marginStart="4dp"/>
+    </LinearLayout>
+
+    <Button android:id="@+id/btnUploadPhoto"
+        android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:layout_marginTop="16dp" android:text="Upload Base Photo"/>
+
+    <TextView android:id="@+id/textPhotoStatus"
+        android:layout_width="wrap_content" android:layout_height="wrap_content"
+        android:layout_marginTop="4dp" android:text="No photo selected"
+        android:textColor="#888888" android:textSize="12sp"/>
+
+    <Button android:id="@+id/btnConfirm"
+        android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:layout_marginTop="24dp" android:text="Confirm"/>
+
+    <Button android:id="@+id/btnDeviceAdminSettings"
+        android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:layout_marginTop="8dp" android:text="Enable Device Admin"/>
+
+</LinearLayout>
+</ScrollView>
