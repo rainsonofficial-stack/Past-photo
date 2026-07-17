@@ -7,12 +7,12 @@ import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Matrix
 import android.graphics.Paint
+import android.graphics.Path
 import android.graphics.Typeface
 import android.text.Layout
 import android.text.StaticLayout
 import android.text.TextPaint
 import androidx.exifinterface.media.ExifInterface
-import kotlin.math.sin
 import kotlin.random.Random
 
 object ImageComposer {
@@ -54,6 +54,10 @@ object ImageComposer {
         val paint = TextPaint(TextPaint.ANTI_ALIAS_FLAG)
         paint.typeface = typeface
         paint.color = colorWithAlpha
+        // Enable contextual alternates + ligatures so the font's real letter
+        // variation kicks in — this only works when text is shaped as a
+        // continuous run, not drawn character by character.
+        paint.fontFeatureSettings = "'calt' 1, 'liga' 1"
 
         val displayText = buildDisplayText(text)
 
@@ -156,6 +160,10 @@ object ImageComposer {
             .build()
     }
 
+    // Draws each full line as ONE continuous text run along a gently wavy
+    // path — this keeps every letter's real neighbors intact so the font's
+    // contextual alternates (calt) actually get to choose between its 3
+    // variants per letter, instead of collapsing to one default shape.
     private fun drawHandwrittenText(
         canvas: Canvas,
         layout: StaticLayout,
@@ -168,61 +176,51 @@ object ImageComposer {
 
         for (lineIndex in 0 until layout.lineCount) {
             val lineStart = layout.getLineStart(lineIndex)
-            val lineEnd = layout.getLineEnd(lineIndex)
+            var lineEnd = layout.getLineEnd(lineIndex)
+            // Trim trailing newline from the substring so it isn't drawn as a glyph.
+            if (lineEnd > lineStart && fullText[lineEnd - 1] == '\n') lineEnd -= 1
+            if (lineStart >= lineEnd) continue
+
+            val lineText = fullText.substring(lineStart, lineEnd)
             val lineBaseline = layout.getLineBaseline(lineIndex).toFloat()
             val lineLeft = layout.getLineLeft(lineIndex)
             val lineRight = layout.getLineRight(lineIndex)
             val lineWidth = (lineRight - lineLeft).coerceAtLeast(1f)
 
+            val linePaint = TextPaint(basePaint)
+
+            // Subtle per-line ink shade variation (whole line, not per letter,
+            // since letters are now shaped together as one run).
+            val shade = 0.9f + random.nextFloat() * 0.2f
+            val jitteredColor = Color.rgb(
+                (Color.red(baseColor) * shade).toInt().coerceIn(0, 255),
+                (Color.green(baseColor) * shade).toInt().coerceIn(0, 255),
+                (Color.blue(baseColor) * shade).toInt().coerceIn(0, 255)
+            )
+            linePaint.color = Color.argb((fillOpacity * 255).toInt(), Color.red(jitteredColor), Color.green(jitteredColor), Color.blue(jitteredColor))
+
+            // Slight per-line size variation (some lines a touch bigger/smaller).
+            linePaint.textSize = basePaint.textSize * (0.97f + random.nextFloat() * 0.06f)
+
+            // Build a gently wavy path for the baseline so the line doesn't
+            // sit perfectly flat — mimics natural handwriting drift.
             val driftAmplitude = basePaint.textSize * (0.03f + random.nextFloat() * 0.05f)
             val driftPhase = random.nextFloat() * (2 * Math.PI).toFloat()
             val driftFrequency = 1.5f + random.nextFloat() * 1.5f
 
-            var cursorX = lineLeft
-
-            for (i in lineStart until lineEnd) {
-                val ch = fullText[i]
-                if (ch == '\n') continue
-
-                val charPaint = TextPaint(basePaint)
-                charPaint.style = Paint.Style.FILL
-
-                val shade = 0.85f + random.nextFloat() * 0.3f
-                val jitteredColor = Color.rgb(
-                    (Color.red(baseColor) * shade).toInt().coerceIn(0, 255),
-                    (Color.green(baseColor) * shade).toInt().coerceIn(0, 255),
-                    (Color.blue(baseColor) * shade).toInt().coerceIn(0, 255)
-                )
-                charPaint.color = Color.argb((fillOpacity * 255).toInt(), Color.red(jitteredColor), Color.green(jitteredColor), Color.blue(jitteredColor))
-
-                val sizeJitter = basePaint.textSize * (0.94f + random.nextFloat() * 0.12f)
-                charPaint.textSize = sizeJitter
-
-                val perCharBaselineJitter = (random.nextFloat() * basePaint.textSize * 0.06f) - (basePaint.textSize * 0.03f)
-
-                val progress = ((cursorX - lineLeft) / lineWidth).coerceIn(0f, 1f)
-                val lineDrift = driftAmplitude * sin(driftPhase + progress * driftFrequency * 2 * Math.PI.toFloat())
-
-                val rotJitter = (random.nextFloat() * 8f) - 4f
-
-                val skewJitter = (random.nextFloat() * 0.34f) - 0.17f
-                charPaint.textSkewX = skewJitter
-
-                val charWidth = charPaint.measureText(ch.toString())
-
-                canvas.save()
-                canvas.translate(cursorX, lineBaseline + perCharBaselineJitter + lineDrift)
-                canvas.rotate(rotJitter, charWidth / 2f, -basePaint.textSize / 3f)
-
-                // Single fill pass only — no stroke/bold overlay, since it was
-                // creating a visible outline/cutout look on rounded letters
-                // like "B" once blur was applied.
-                canvas.drawText(ch.toString(), 0f, 0f, charPaint)
-
-                canvas.restore()
-
-                cursorX += charWidth
+            val path = Path()
+            val steps = 40
+            for (s in 0..steps) {
+                val progress = s / steps.toFloat()
+                val x = lineLeft + progress * lineWidth
+                val y = driftAmplitude * kotlin.math.sin(driftPhase + progress * driftFrequency * 2 * Math.PI.toFloat())
+                if (s == 0) path.moveTo(x, y) else path.lineTo(x, y)
             }
+
+            canvas.save()
+            canvas.translate(0f, lineBaseline)
+            canvas.drawTextOnPath(lineText, path, 0f, 0f, linePaint)
+            canvas.restore()
         }
     }
 
