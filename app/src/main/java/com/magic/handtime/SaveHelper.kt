@@ -8,17 +8,38 @@ import android.provider.MediaStore
 import androidx.exifinterface.media.ExifInterface
 import java.text.SimpleDateFormat
 import java.util.*
+import kotlin.random.Random
 
 object SaveHelper {
 
     fun resolveTargetTime(context: Context): Long {
         val prefs = context.getSharedPreferences("handtime_prefs", Context.MODE_PRIVATE)
         val now = Calendar.getInstance()
+        val random = Random(System.nanoTime())
+
         return when (prefs.getString("time_setting", "3h")) {
-            "3h" -> { now.add(Calendar.HOUR_OF_DAY, -3); now.timeInMillis }
-            "10h" -> { now.add(Calendar.HOUR_OF_DAY, -10); now.timeInMillis }
-            "24h" -> { now.add(Calendar.HOUR_OF_DAY, -24); now.timeInMillis }
-            "3d" -> { now.add(Calendar.DAY_OF_YEAR, -3); now.timeInMillis }
+            "3h" -> {
+                now.add(Calendar.HOUR_OF_DAY, -3)
+                applyMinuteJitter(now, random)
+                now.timeInMillis
+            }
+            "10h" -> {
+                now.add(Calendar.HOUR_OF_DAY, -10)
+                applyMinuteJitter(now, random)
+                now.timeInMillis
+            }
+            "24h" -> {
+                now.add(Calendar.HOUR_OF_DAY, -24)
+                applyHourJitter(now, random)
+                applyMinuteJitter(now, random)
+                now.timeInMillis
+            }
+            "3d" -> {
+                now.add(Calendar.DAY_OF_YEAR, -3)
+                applyHourJitter(now, random)
+                applyMinuteJitter(now, random)
+                now.timeInMillis
+            }
             "custom" -> {
                 val customStr = prefs.getString("custom_datetime", "") ?: ""
                 try {
@@ -28,6 +49,20 @@ object SaveHelper {
             }
             else -> now.timeInMillis
         }
+    }
+
+    // Adds or subtracts a random 10–30 minute offset.
+    private fun applyMinuteJitter(calendar: Calendar, random: Random) {
+        val minutes = 10 + random.nextInt(21) // 10–30 inclusive
+        val sign = if (random.nextBoolean()) 1 else -1
+        calendar.add(Calendar.MINUTE, sign * minutes)
+    }
+
+    // Adds or subtracts a random 2–4 hour offset.
+    private fun applyHourJitter(calendar: Calendar, random: Random) {
+        val hours = 2 + random.nextInt(3) // 2–4 inclusive
+        val sign = if (random.nextBoolean()) 1 else -1
+        calendar.add(Calendar.HOUR_OF_DAY, sign * hours)
     }
 
     fun saveComposedImage(context: Context, bitmap: Bitmap, timeMillis: Long) {
