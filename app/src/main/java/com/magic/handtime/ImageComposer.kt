@@ -80,11 +80,6 @@ object ImageComposer {
         val centerX = textX + finalLayout.width / 2f
         val centerY = textY + finalLayout.height / 2f
 
-        // Render the text onto its own transparent layer, the same size as
-        // the base photo, instead of drawing straight onto the final canvas.
-        // This lets us blur ONLY the text afterward to match the photo's
-        // natural camera/compression softness — sharp vector text sitting on
-        // a softer real photo is a dead giveaway when zoomed in.
         val textLayer = Bitmap.createBitmap(bitmap.width, bitmap.height, Bitmap.Config.ARGB_8888)
         val textCanvas = Canvas(textLayer)
         textCanvas.save()
@@ -93,17 +88,13 @@ object ImageComposer {
         drawHandwrittenText(textCanvas, finalLayout, paint, displayText, baseColor, opacityFraction)
         textCanvas.restore()
 
-        val softenedTextLayer = softenLayer(textLayer, strength = 0.60f)
+        val softenedTextLayer = softenLayer(textLayer, strength = 0.6f)
 
         canvas.drawBitmap(softenedTextLayer, 0f, 0f, null)
 
         return bitmap
     }
 
-    // Cheap, dependency-free blur: downscale then upscale with bilinear
-    // filtering. strength is 0–1; small values (~0.08–0.15) give a subtle
-    // softening that matches typical phone-camera photo sharpness without
-    // making the text unreadable.
     private fun softenLayer(source: Bitmap, strength: Float): Bitmap {
         val scale = (1f - strength.coerceIn(0f, 0.6f))
         val smallW = (source.width * scale).toInt().coerceAtLeast(1)
@@ -223,26 +214,10 @@ object ImageComposer {
                 canvas.translate(cursorX, lineBaseline + perCharBaselineJitter + lineDrift)
                 canvas.rotate(rotJitter, charWidth / 2f, -basePaint.textSize / 3f)
 
+                // Single fill pass only — no stroke/bold overlay, since it was
+                // creating a visible outline/cutout look on rounded letters
+                // like "B" once blur was applied.
                 canvas.drawText(ch.toString(), 0f, 0f, charPaint)
-
-                if (random.nextFloat() < 0.3f) {
-                    val boostFraction = 0.07f + random.nextFloat() * 0.03f
-                    val targetOverlap = (fillOpacity + boostFraction).coerceAtMost(1f)
-
-                    val strokeAlpha = if (fillOpacity >= 0.999f) {
-                        0f
-                    } else {
-                        ((targetOverlap - fillOpacity) / (1f - fillOpacity)).coerceIn(0f, 1f)
-                    }
-
-                    if (strokeAlpha > 0f) {
-                        val boldPaint = TextPaint(charPaint)
-                        boldPaint.style = Paint.Style.STROKE
-                        boldPaint.strokeWidth = charPaint.textSize * (0.015f + random.nextFloat() * 0.01f)
-                        boldPaint.color = Color.argb((strokeAlpha * 255).toInt(), Color.red(jitteredColor), Color.green(jitteredColor), Color.blue(jitteredColor))
-                        canvas.drawText(ch.toString(), 0f, 0f, boldPaint)
-                    }
-                }
 
                 canvas.restore()
 
