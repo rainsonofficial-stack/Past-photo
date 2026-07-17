@@ -6,8 +6,6 @@ import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Matrix
-import android.graphics.Paint
-import android.graphics.Path
 import android.graphics.Typeface
 import android.text.Layout
 import android.text.StaticLayout
@@ -54,9 +52,8 @@ object ImageComposer {
         val paint = TextPaint(TextPaint.ANTI_ALIAS_FLAG)
         paint.typeface = typeface
         paint.color = colorWithAlpha
-        // Enable contextual alternates + ligatures so the font's real letter
-        // variation kicks in — this only works when text is shaped as a
-        // continuous run, not drawn character by character.
+        // Contextual alternates + ligatures — this is what gives the font its
+        // real per-letter variation, since it's shaped as continuous text runs.
         paint.fontFeatureSettings = "'calt' 1, 'liga' 1"
 
         val displayText = buildDisplayText(text)
@@ -160,10 +157,11 @@ object ImageComposer {
             .build()
     }
 
-    // Draws each full line as ONE continuous text run along a gently wavy
-    // path — this keeps every letter's real neighbors intact so the font's
-    // contextual alternates (calt) actually get to choose between its 3
-    // variants per letter, instead of collapsing to one default shape.
+    // Draws each full line as ONE continuous, perfectly flat text run — no
+    // skew, rotation, or wavy baseline. The font's own contextual alternates
+    // (calt) already provide natural per-letter variation, so adding
+    // artificial wobble on top was fighting the font's design rather than
+    // complementing it.
     private fun drawHandwrittenText(
         canvas: Canvas,
         layout: StaticLayout,
@@ -177,20 +175,16 @@ object ImageComposer {
         for (lineIndex in 0 until layout.lineCount) {
             val lineStart = layout.getLineStart(lineIndex)
             var lineEnd = layout.getLineEnd(lineIndex)
-            // Trim trailing newline from the substring so it isn't drawn as a glyph.
             if (lineEnd > lineStart && fullText[lineEnd - 1] == '\n') lineEnd -= 1
             if (lineStart >= lineEnd) continue
 
             val lineText = fullText.substring(lineStart, lineEnd)
             val lineBaseline = layout.getLineBaseline(lineIndex).toFloat()
             val lineLeft = layout.getLineLeft(lineIndex)
-            val lineRight = layout.getLineRight(lineIndex)
-            val lineWidth = (lineRight - lineLeft).coerceAtLeast(1f)
 
             val linePaint = TextPaint(basePaint)
 
-            // Subtle per-line ink shade variation (whole line, not per letter,
-            // since letters are now shaped together as one run).
+            // Small per-line ink shade variation only — no geometric distortion.
             val shade = 0.9f + random.nextFloat() * 0.2f
             val jitteredColor = Color.rgb(
                 (Color.red(baseColor) * shade).toInt().coerceIn(0, 255),
@@ -199,28 +193,10 @@ object ImageComposer {
             )
             linePaint.color = Color.argb((fillOpacity * 255).toInt(), Color.red(jitteredColor), Color.green(jitteredColor), Color.blue(jitteredColor))
 
-            // Slight per-line size variation (some lines a touch bigger/smaller).
+            // Small per-line size variation only.
             linePaint.textSize = basePaint.textSize * (0.97f + random.nextFloat() * 0.06f)
 
-            // Build a gently wavy path for the baseline so the line doesn't
-            // sit perfectly flat — mimics natural handwriting drift.
-            val driftAmplitude = basePaint.textSize * (0.03f + random.nextFloat() * 0.05f)
-            val driftPhase = random.nextFloat() * (2 * Math.PI).toFloat()
-            val driftFrequency = 1.5f + random.nextFloat() * 1.5f
-
-            val path = Path()
-            val steps = 40
-            for (s in 0..steps) {
-                val progress = s / steps.toFloat()
-                val x = lineLeft + progress * lineWidth
-                val y = driftAmplitude * kotlin.math.sin(driftPhase + progress * driftFrequency * 2 * Math.PI.toFloat())
-                if (s == 0) path.moveTo(x, y) else path.lineTo(x, y)
-            }
-
-            canvas.save()
-            canvas.translate(0f, lineBaseline)
-            canvas.drawTextOnPath(lineText, path, 0f, 0f, linePaint)
-            canvas.restore()
+            canvas.drawText(lineText, lineLeft, lineBaseline, linePaint)
         }
     }
 
