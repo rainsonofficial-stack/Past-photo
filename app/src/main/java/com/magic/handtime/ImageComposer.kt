@@ -93,7 +93,7 @@ object ImageComposer {
         drawHandwrittenText(textCanvas, finalLayout, paint, displayText, baseColor, opacityFraction)
         textCanvas.restore()
 
-        val softenedTextLayer = softenLayer(textLayer, strength = 0.10f)
+        val softenedTextLayer = softenLayer(textLayer, strength = 0.22f)
 
         canvas.drawBitmap(softenedTextLayer, 0f, 0f, null)
 
