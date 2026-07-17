@@ -28,6 +28,7 @@ class MainActivity : AppCompatActivity() {
         setContentView(R.layout.activity_main)
         prefs = getSharedPreferences("handtime_prefs", MODE_PRIVATE)
 
+        val btnNotificationAccess = findViewById<Button>(R.id.btnNotificationAccess)
         val editApiLink = findViewById<EditText>(R.id.editApiLink)
         val editApiKey = findViewById<EditText>(R.id.editApiKey)
         val radioGroup = findViewById<RadioGroup>(R.id.radioTimeGroup)
@@ -93,6 +94,10 @@ class MainActivity : AppCompatActivity() {
             startActivity(intent)
         }
 
+        btnNotificationAccess.setOnClickListener {
+    startActivity(Intent(android.provider.Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
+        }
+        
         btnConfirm.setOnClickListener {
             if (!getBaseImageFile().exists()) {
                 Toast.makeText(this, "Upload a base photo first", Toast.LENGTH_LONG).show()
