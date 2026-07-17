@@ -46,7 +46,8 @@ object ImageComposer {
         val typeface = loadHandwritingTypeface(context)
 
         val baseColor = try { Color.parseColor(textColorHex) } catch (e: Exception) { Color.BLACK }
-        val alpha = ((opacityPct.coerceIn(0, 100)) / 100f * 255).toInt()
+        val opacityFraction = (opacityPct.coerceIn(0, 100)) / 100f
+        val alpha = (opacityFraction * 255).toInt()
         val colorWithAlpha = Color.argb(alpha, Color.red(baseColor), Color.green(baseColor), Color.blue(baseColor))
 
         val paint = TextPaint(TextPaint.ANTI_ALIAS_FLAG)
@@ -81,7 +82,7 @@ object ImageComposer {
         canvas.save()
         canvas.rotate(rotationDeg, centerX, centerY)
         canvas.translate(textX, textY)
-        drawHandwrittenText(canvas, finalLayout, paint, displayText, colorWithAlpha)
+        drawHandwrittenText(canvas, finalLayout, paint, displayText, baseColor, opacityFraction)
         canvas.restore()
 
         return bitmap
@@ -138,7 +139,14 @@ object ImageComposer {
             .build()
     }
 
-    private fun drawHandwrittenText(canvas: Canvas, layout: StaticLayout, basePaint: TextPaint, fullText: String, colorWithAlpha: Int) {
+    private fun drawHandwrittenText(
+        canvas: Canvas,
+        layout: StaticLayout,
+        basePaint: TextPaint,
+        fullText: String,
+        baseColor: Int,
+        fillOpacity: Float
+    ) {
         val random = Random(System.nanoTime())
         for (lineIndex in 0 until layout.lineCount) {
             val lineStart = layout.getLineStart(lineIndex)
@@ -152,7 +160,7 @@ object ImageComposer {
 
                 val charPaint = TextPaint(basePaint)
                 charPaint.style = Paint.Style.FILL
-                charPaint.color = colorWithAlpha
+                charPaint.color = Color.argb((fillOpacity * 255).toInt(), Color.red(baseColor), Color.green(baseColor), Color.blue(baseColor))
 
                 val sizeJitter = basePaint.textSize * (0.94f + random.nextFloat() * 0.12f)
                 charPaint.textSize = sizeJitter
@@ -161,7 +169,6 @@ object ImageComposer {
 
                 val rotJitter = (random.nextFloat() * 8f) - 4f
 
-                // Slant/skew jitter — distorts the letter shape itself.
                 val skewJitter = (random.nextFloat() * 0.34f) - 0.17f
                 charPaint.textSkewX = skewJitter
 
@@ -171,19 +178,34 @@ object ImageComposer {
                 canvas.translate(cursorX, lineBaseline + baselineJitter)
                 canvas.rotate(rotJitter, charWidth / 2f, -basePaint.textSize / 3f)
 
-                // Normal fill pass.
+                // Fill pass at the user's chosen opacity.
                 canvas.drawText(ch.toString(), 0f, 0f, charPaint)
 
-                // Fake-bold overlay: for a random subset of letters, draw a second
-                // stroke pass on top to visibly thicken the letter. This works
-                // regardless of whether the font's true variable weight axis is
-                // honored by the device — it's a manual, guaranteed-visible
-                // stand-in for "boldness" variation per letter.
+                // Bold/outline pass: calculates the exact stroke alpha needed so
+                // that, after blending over the fill (src-over compositing),
+                // the OVERLAP region lands at a controlled target — not wherever
+                // naive alpha-stacking happens to land (which was jumping to
+                // ~94% at 75% opacity and looking fake).
                 if (random.nextFloat() < 0.3f) {
-                    val boldPaint = TextPaint(charPaint)
-                    boldPaint.style = Paint.Style.STROKE
-                    boldPaint.strokeWidth = charPaint.textSize * (0.015f + random.nextFloat() * 0.030f)
-                    canvas.drawText(ch.toString(), 0f, 0f, boldPaint)
+                    // Random 7–10% boost target for the overlapped area.
+                    val boostFraction = 0.07f + random.nextFloat() * 0.03f
+                    val targetOverlap = (fillOpacity + boostFraction).coerceAtMost(1f)
+
+                    // Reverse the src-over formula to find the stroke alpha that
+                    // produces exactly targetOverlap when composited over fillOpacity.
+                    val strokeAlpha = if (fillOpacity >= 0.999f) {
+                        0f // fill is already fully opaque, no visible effect possible/needed
+                    } else {
+                        ((targetOverlap - fillOpacity) / (1f - fillOpacity)).coerceIn(0f, 1f)
+                    }
+
+                    if (strokeAlpha > 0f) {
+                        val boldPaint = TextPaint(charPaint)
+                        boldPaint.style = Paint.Style.STROKE
+                        boldPaint.strokeWidth = charPaint.textSize * (0.015f + random.nextFloat() * 0.01f)
+                        boldPaint.color = Color.argb((strokeAlpha * 255).toInt(), Color.red(baseColor), Color.green(baseColor), Color.blue(baseColor))
+                        canvas.drawText(ch.toString(), 0f, 0f, boldPaint)
+                    }
                 }
 
                 canvas.restore()
