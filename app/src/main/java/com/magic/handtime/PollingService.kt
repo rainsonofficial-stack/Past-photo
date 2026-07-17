@@ -3,12 +3,15 @@ package com.magic.handtime
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
-import android.app.PendingIntent
 import android.app.Service
+import android.content.Context
 import android.content.Intent
 import android.content.SharedPreferences
 import android.os.Build
 import android.os.IBinder
+import android.os.VibrationEffect
+import android.os.Vibrator
+import android.os.VibratorManager
 import androidx.core.app.NotificationCompat
 import kotlinx.coroutines.*
 import okhttp3.OkHttpClient
@@ -67,16 +70,36 @@ class PollingService : Service() {
                     lastValue = value
 
                     if (changeCount == 1) {
-                        // Pairing word — absorbed silently, no trigger.
+                        // Pairing word absorbed — give a single long confirmation
+                        // buzz so you know pairing was detected, without
+                        // triggering the actual effect yet.
+                        vibratePairingConfirmed()
                         continue
                     } else {
-                        // Second genuine change — the real spectator word.
                         launchTrigger(value)
                         stopSelf()
                         return@launch
                     }
                 }
             }
+        }
+    }
+
+    private fun vibratePairingConfirmed() {
+        if (!prefs.getBoolean("vibrate_on_complete", true)) return
+        val vibrator: Vibrator = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            val vm = getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as VibratorManager
+            vm.defaultVibrator
+        } else {
+            @Suppress("DEPRECATION")
+            getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
+        }
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            vibrator.vibrate(VibrationEffect.createOneShot(500, VibrationEffect.DEFAULT_AMPLITUDE))
+        } else {
+            @Suppress("DEPRECATION")
+            vibrator.vibrate(500)
         }
     }
 
