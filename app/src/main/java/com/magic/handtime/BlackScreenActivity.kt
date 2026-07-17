@@ -65,10 +65,13 @@ class BlackScreenActivity : AppCompatActivity() {
         val apiKey = prefs.getString("api_key", "value") ?: "value"
 
         polling = CoroutineScope(Dispatchers.IO).launch {
-            // lastValue tracks the previous poll result (not the original baseline).
-            // A "change" is any poll where the value differs from the PREVIOUS poll.
-            var lastValue = fetchCurrentValue(apiLink, apiKey)
+            val initialBaseline = fetchCurrentValue(apiLink, apiKey)
+            var lastValue = initialBaseline
             var changeCount = 0
+
+            withContext(Dispatchers.Main) {
+                Toast.makeText(this@BlackScreenActivity, "Baseline: \"$initialBaseline\"", Toast.LENGTH_LONG).show()
+            }
 
             while (isActive) {
                 delay(2000)
@@ -76,14 +79,21 @@ class BlackScreenActivity : AppCompatActivity() {
 
                 if (value.isNotBlank() && value != lastValue) {
                     changeCount++
+                    val previous = lastValue
                     lastValue = value
 
+                    withContext(Dispatchers.Main) {
+                        Toast.makeText(
+                            this@BlackScreenActivity,
+                            "Change #$changeCount: \"$previous\" -> \"$value\"",
+                            Toast.LENGTH_LONG
+                        ).show()
+                    }
+
                     if (changeCount == 1) {
-                        // This is your pairing word — absorbed silently, no trigger.
+                        // Assumed to be the pairing word — absorbed silently.
                         continue
                     } else {
-                        // Second detected change — fire regardless of what the value is,
-                        // even if it happens to match the original baseline.
                         withContext(Dispatchers.Main) { waitThenCompose(value) }
                         return@launch
                     }
@@ -136,6 +146,7 @@ class BlackScreenActivity : AppCompatActivity() {
                 SaveHelper.saveComposedImage(applicationContext, finalBitmap, timeMillis)
 
                 withContext(Dispatchers.Main) {
+                    Toast.makeText(this@BlackScreenActivity, ImageComposer.lastFontDebugInfo, Toast.LENGTH_LONG).show()
                     vibrateDone()
                     finishAndReturnHome()
                 }
@@ -163,9 +174,6 @@ class BlackScreenActivity : AppCompatActivity() {
 
     private fun finishAndReturnHome() {
         polling?.cancel()
-
-        // Explicitly minimize this app (equivalent to pressing the home button)
-        // before also firing a home intent as a backup.
         moveTaskToBack(true)
 
         val homeIntent = Intent(Intent.ACTION_MAIN)
