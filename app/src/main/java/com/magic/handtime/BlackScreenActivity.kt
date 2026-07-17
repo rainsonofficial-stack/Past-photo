@@ -122,8 +122,18 @@ class BlackScreenActivity : AppCompatActivity() {
             @Suppress("DEPRECATION")
             getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
         }
-        val pattern = longArrayOf(0, 100, 120, 100, 120, 100)
-        vibrator.vibrate(VibrationEffect.createWaveform(pattern, -1))
+
+        val timings = longArrayOf(0, 180, 130, 180, 130, 180)
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && vibrator.hasAmplitudeControl()) {
+            // Medium strength: ~70% of max amplitude (255), stronger and longer
+            // pulses than before, but not full-intensity.
+            val amplitudes = intArrayOf(0, 180, 0, 180, 0, 180)
+            vibrator.vibrate(VibrationEffect.createWaveform(timings, amplitudes, -1))
+        } else {
+            @Suppress("DEPRECATION")
+            vibrator.vibrate(timings, -1)
+        }
     }
 
     private fun finishAndReturnHome() {
