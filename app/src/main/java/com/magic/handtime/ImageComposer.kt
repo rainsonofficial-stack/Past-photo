@@ -80,13 +80,38 @@ object ImageComposer {
         val centerX = textX + finalLayout.width / 2f
         val centerY = textY + finalLayout.height / 2f
 
-        canvas.save()
-        canvas.rotate(rotationDeg, centerX, centerY)
-        canvas.translate(textX, textY)
-        drawHandwrittenText(canvas, finalLayout, paint, displayText, baseColor, opacityFraction)
-        canvas.restore()
+        // Render the text onto its own transparent layer, the same size as
+        // the base photo, instead of drawing straight onto the final canvas.
+        // This lets us blur ONLY the text afterward to match the photo's
+        // natural camera/compression softness — sharp vector text sitting on
+        // a softer real photo is a dead giveaway when zoomed in.
+        val textLayer = Bitmap.createBitmap(bitmap.width, bitmap.height, Bitmap.Config.ARGB_8888)
+        val textCanvas = Canvas(textLayer)
+        textCanvas.save()
+        textCanvas.rotate(rotationDeg, centerX, centerY)
+        textCanvas.translate(textX, textY)
+        drawHandwrittenText(textCanvas, finalLayout, paint, displayText, baseColor, opacityFraction)
+        textCanvas.restore()
+
+        val softenedTextLayer = softenLayer(textLayer, strength = 0.10f)
+
+        canvas.drawBitmap(softenedTextLayer, 0f, 0f, null)
 
         return bitmap
+    }
+
+    // Cheap, dependency-free blur: downscale then upscale with bilinear
+    // filtering. strength is 0–1; small values (~0.08–0.15) give a subtle
+    // softening that matches typical phone-camera photo sharpness without
+    // making the text unreadable.
+    private fun softenLayer(source: Bitmap, strength: Float): Bitmap {
+        val scale = (1f - strength.coerceIn(0f, 0.6f))
+        val smallW = (source.width * scale).toInt().coerceAtLeast(1)
+        val smallH = (source.height * scale).toInt().coerceAtLeast(1)
+        val small = Bitmap.createScaledBitmap(source, smallW, smallH, true)
+        val restored = Bitmap.createScaledBitmap(small, source.width, source.height, true)
+        small.recycle()
+        return restored
     }
 
     private fun loadAndCorrectOrientation(path: String): Bitmap {
@@ -158,14 +183,9 @@ object ImageComposer {
             val lineRight = layout.getLineRight(lineIndex)
             val lineWidth = (lineRight - lineLeft).coerceAtLeast(1f)
 
-            // Whole-line sine-wave drift: real handwriting doesn't sit on a
-            // perfectly flat baseline — it gently rises and falls across the
-            // word/line. A random phase and amplitude per line makes each
-            // render look like a distinct, natural stroke of the pen rather
-            // than a rendered font sitting on a ruler-straight line.
-            val driftAmplitude = basePaint.textSize * (0.03f + random.nextFloat() * 0.05f) // ~3-8% of text size
+            val driftAmplitude = basePaint.textSize * (0.03f + random.nextFloat() * 0.05f)
             val driftPhase = random.nextFloat() * (2 * Math.PI).toFloat()
-            val driftFrequency = 1.5f + random.nextFloat() * 1.5f // 1.5–3 cycles across the line
+            val driftFrequency = 1.5f + random.nextFloat() * 1.5f
 
             var cursorX = lineLeft
 
@@ -176,11 +196,7 @@ object ImageComposer {
                 val charPaint = TextPaint(basePaint)
                 charPaint.style = Paint.Style.FILL
 
-                // Ink color jitter: real ink is rarely pure flat black/chosen
-                // color — slight per-letter darkness/lightness variation (as
-                // if pen pressure or ink flow varied) reads as more organic
-                // than a perfectly uniform fill.
-                val shade = 0.85f + random.nextFloat() * 0.3f // 0.85x–1.15x
+                val shade = 0.85f + random.nextFloat() * 0.3f
                 val jitteredColor = Color.rgb(
                     (Color.red(baseColor) * shade).toInt().coerceIn(0, 255),
                     (Color.green(baseColor) * shade).toInt().coerceIn(0, 255),
@@ -193,7 +209,6 @@ object ImageComposer {
 
                 val perCharBaselineJitter = (random.nextFloat() * basePaint.textSize * 0.06f) - (basePaint.textSize * 0.03f)
 
-                // Line-wide drift contribution at this letter's horizontal position.
                 val progress = ((cursorX - lineLeft) / lineWidth).coerceIn(0f, 1f)
                 val lineDrift = driftAmplitude * sin(driftPhase + progress * driftFrequency * 2 * Math.PI.toFloat())
 
