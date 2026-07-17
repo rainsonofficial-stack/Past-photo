@@ -19,16 +19,11 @@ import android.widget.FrameLayout
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import kotlinx.coroutines.*
-import okhttp3.OkHttpClient
-import okhttp3.Request
-import org.json.JSONObject
 import java.io.File
 
 class BlackScreenActivity : AppCompatActivity() {
 
     private lateinit var prefs: SharedPreferences
-    private val client = OkHttpClient()
-    private var polling: Job? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -40,7 +35,20 @@ class BlackScreenActivity : AppCompatActivity() {
         root.setBackgroundColor(Color.BLACK)
         setContentView(root)
 
-        startPolling()
+        handleIntent(intent)
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleIntent(intent)
+    }
+
+    private fun handleIntent(intent: Intent) {
+        val term = intent.getStringExtra("trigger_term")
+        if (term != null) {
+            waitThenCompose(term)
+        }
     }
 
     private fun hideSystemBars() {
@@ -58,59 +66,6 @@ class BlackScreenActivity : AppCompatActivity() {
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
         if (hasFocus) hideSystemBars()
-    }
-
-    private fun startPolling() {
-        val apiLink = prefs.getString("api_link", "") ?: ""
-        val apiKey = prefs.getString("api_key", "value") ?: "value"
-
-        polling = CoroutineScope(Dispatchers.IO).launch {
-            val initialBaseline = fetchCurrentValue(apiLink, apiKey)
-            var lastValue = initialBaseline
-            var changeCount = 0
-
-            withContext(Dispatchers.Main) {
-                Toast.makeText(this@BlackScreenActivity, "Baseline: \"$initialBaseline\"", Toast.LENGTH_LONG).show()
-            }
-
-            while (isActive) {
-                delay(2000)
-                val value = fetchCurrentValue(apiLink, apiKey)
-
-                if (value.isNotBlank() && value != lastValue) {
-                    changeCount++
-                    val previous = lastValue
-                    lastValue = value
-
-                    withContext(Dispatchers.Main) {
-                        Toast.makeText(
-                            this@BlackScreenActivity,
-                            "Change #$changeCount: \"$previous\" -> \"$value\"",
-                            Toast.LENGTH_LONG
-                        ).show()
-                    }
-
-                    if (changeCount == 1) {
-                        // Assumed to be the pairing word — absorbed silently.
-                        continue
-                    } else {
-                        withContext(Dispatchers.Main) { waitThenCompose(value) }
-                        return@launch
-                    }
-                }
-            }
-        }
-    }
-
-    private fun fetchCurrentValue(apiLink: String, apiKey: String): String {
-        return try {
-            val request = Request.Builder().url(apiLink).build()
-            client.newCall(request).execute().use { response ->
-                val body = response.body?.string() ?: return ""
-                val json = JSONObject(body)
-                if (json.has(apiKey)) json.getString(apiKey) else ""
-            }
-        } catch (e: Exception) { "" }
     }
 
     private fun waitThenCompose(term: String) {
@@ -146,7 +101,6 @@ class BlackScreenActivity : AppCompatActivity() {
                 SaveHelper.saveComposedImage(applicationContext, finalBitmap, timeMillis)
 
                 withContext(Dispatchers.Main) {
-                    Toast.makeText(this@BlackScreenActivity, ImageComposer.lastFontDebugInfo, Toast.LENGTH_LONG).show()
                     vibrateDone()
                     finishAndReturnHome()
                 }
@@ -173,7 +127,6 @@ class BlackScreenActivity : AppCompatActivity() {
     }
 
     private fun finishAndReturnHome() {
-        polling?.cancel()
         moveTaskToBack(true)
 
         val homeIntent = Intent(Intent.ACTION_MAIN)
@@ -200,10 +153,5 @@ class BlackScreenActivity : AppCompatActivity() {
         } catch (e: Exception) {
             Toast.makeText(this, "Lock failed: ${e.message}", Toast.LENGTH_LONG).show()
         }
-    }
-
-    override fun onDestroy() {
-        super.onDestroy()
-        polling?.cancel()
     }
 }
