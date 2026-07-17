@@ -5,10 +5,12 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.Matrix
 import android.graphics.Typeface
 import android.text.Layout
 import android.text.StaticLayout
 import android.text.TextPaint
+import androidx.exifinterface.media.ExifInterface
 import kotlin.random.Random
 
 object ImageComposer {
@@ -25,8 +27,7 @@ object ImageComposer {
         opacityPct: Int,
         rotationDeg: Float = 0f
     ): Bitmap {
-        val original = BitmapFactory.decodeFile(baseImagePath)
-            ?: throw IllegalStateException("Base image not found")
+        val original = loadAndCorrectOrientation(baseImagePath)
         val bitmap = original.copy(Bitmap.Config.ARGB_8888, true)
         val canvas = Canvas(bitmap)
         val w = bitmap.width.toFloat()
@@ -49,9 +50,6 @@ object ImageComposer {
         paint.typeface = typeface
         paint.color = colorWithAlpha
 
-        // Force multi-line for anything longer than 2 words, so the app doesn't
-        // squeeze a long phrase onto a single huge-font line. Groups words two
-        // at a time; StaticLayout will further wrap a pair if it's still too wide.
         val displayText = buildDisplayText(text)
 
         var lo = 8f
@@ -84,6 +82,37 @@ object ImageComposer {
         canvas.restore()
 
         return bitmap
+    }
+
+    // Reads the EXIF orientation tag from the source photo and bakes the correct
+    // rotation into the actual pixels, so the saved output always displays upright
+    // regardless of how the camera stored it.
+    private fun loadAndCorrectOrientation(path: String): Bitmap {
+        val original = BitmapFactory.decodeFile(path)
+            ?: throw IllegalStateException("Base image not found")
+
+        val orientation = try {
+            val exif = ExifInterface(path)
+            exif.getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL)
+        } catch (e: Exception) {
+            ExifInterface.ORIENTATION_NORMAL
+        }
+
+        val matrix = Matrix()
+        when (orientation) {
+            ExifInterface.ORIENTATION_ROTATE_90 -> matrix.postRotate(90f)
+            ExifInterface.ORIENTATION_ROTATE_180 -> matrix.postRotate(180f)
+            ExifInterface.ORIENTATION_ROTATE_270 -> matrix.postRotate(270f)
+            ExifInterface.ORIENTATION_FLIP_HORIZONTAL -> matrix.preScale(-1f, 1f)
+            ExifInterface.ORIENTATION_FLIP_VERTICAL -> matrix.preScale(1f, -1f)
+            else -> { /* no correction needed */ }
+        }
+
+        return if (!matrix.isIdentity) {
+            Bitmap.createBitmap(original, 0, 0, original.width, original.height, matrix, true)
+        } else {
+            original
+        }
     }
 
     private fun buildDisplayText(text: String): String {
@@ -124,15 +153,12 @@ object ImageComposer {
                 val charPaint = TextPaint(basePaint)
                 charPaint.color = colorWithAlpha
 
-                // Variable 1: size jitter (~ ±6%)
                 val sizeJitter = basePaint.textSize * (0.94f + random.nextFloat() * 0.12f)
                 charPaint.textSize = sizeJitter
 
-                // Variable 2: baseline (vertical) jitter
                 val baselineJitter = (random.nextFloat() * basePaint.textSize * 0.06f) - (basePaint.textSize * 0.03f)
 
-                // Variable 3: variable-font weight axis jitter (per letter stroke thickness)
-                val weight = 350 + random.nextInt(300) // 350–650
+                val weight = 350 + random.nextInt(300)
                 try {
                     charPaint.fontVariationSettings = "'wght' $weight"
                 } catch (e: Exception) { /* font may not support the axis; ignore */ }
@@ -151,9 +177,21 @@ object ImageComposer {
         }
     }
 
+    // Scans assets/fonts/ and loads whatever font file is found there, rather than
+    // requiring an exact filename match — avoids silent fallback to system font
+    // due to a filename/extension mismatch.
     private fun loadHandwritingTypeface(context: Context): Typeface {
         return try {
-            Typeface.createFromAsset(context.assets, "fonts/handwriting.ttf")
+            val assetManager = context.assets
+            val fontFiles = assetManager.list("fonts") ?: emptyArray()
+            val fontFile = fontFiles.firstOrNull {
+                it.endsWith(".ttf", ignoreCase = true) || it.endsWith(".otf", ignoreCase = true)
+            }
+            if (fontFile != null) {
+                Typeface.createFromAsset(assetManager, "fonts/$fontFile")
+            } else {
+                Typeface.DEFAULT
+            }
         } catch (e: Exception) {
             Typeface.DEFAULT
         }
