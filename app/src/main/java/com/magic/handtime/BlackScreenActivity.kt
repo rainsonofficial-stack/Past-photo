@@ -30,8 +30,6 @@ class BlackScreenActivity : AppCompatActivity() {
     private val client = OkHttpClient()
     private var polling: Job? = null
 
-    private val ignoredValues = setOf("Paired", "Connected", "Confirmed")
-
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         hideSystemBars()
@@ -67,19 +65,25 @@ class BlackScreenActivity : AppCompatActivity() {
         val apiKey = prefs.getString("api_key", "value") ?: "value"
 
         polling = CoroutineScope(Dispatchers.IO).launch {
-            var baseline = fetchCurrentValue(apiLink, apiKey)
-            var pairingWordAbsorbed = false
+            // lastValue tracks the previous poll result (not the original baseline).
+            // A "change" is any poll where the value differs from the PREVIOUS poll.
+            var lastValue = fetchCurrentValue(apiLink, apiKey)
+            var changeCount = 0
 
             while (isActive) {
                 delay(2000)
                 val value = fetchCurrentValue(apiLink, apiKey)
-                val isIgnored = ignoredValues.any { it.equals(value, ignoreCase = true) }
 
-                if (value.isNotBlank() && value != baseline && !isIgnored) {
-                    if (!pairingWordAbsorbed) {
-                        baseline = value
-                        pairingWordAbsorbed = true
+                if (value.isNotBlank() && value != lastValue) {
+                    changeCount++
+                    lastValue = value
+
+                    if (changeCount == 1) {
+                        // This is your pairing word — absorbed silently, no trigger.
+                        continue
                     } else {
+                        // Second detected change — fire regardless of what the value is,
+                        // even if it happens to match the original baseline.
                         withContext(Dispatchers.Main) { waitThenCompose(value) }
                         return@launch
                     }
@@ -100,7 +104,7 @@ class BlackScreenActivity : AppCompatActivity() {
     }
 
     private fun waitThenCompose(term: String) {
-        Handler(Looper.getMainLooper()).postDelayed({ composeAndSave(term) }, 5000)
+        Handler(Looper.getMainLooper()).postDelayed({ composeAndSave(term) }, 3000)
     }
 
     private fun composeAndSave(term: String) {
@@ -159,6 +163,11 @@ class BlackScreenActivity : AppCompatActivity() {
 
     private fun finishAndReturnHome() {
         polling?.cancel()
+
+        // Explicitly minimize this app (equivalent to pressing the home button)
+        // before also firing a home intent as a backup.
+        moveTaskToBack(true)
+
         val homeIntent = Intent(Intent.ACTION_MAIN)
         homeIntent.addCategory(Intent.CATEGORY_HOME)
         homeIntent.flags = Intent.FLAG_ACTIVITY_NEW_TASK
