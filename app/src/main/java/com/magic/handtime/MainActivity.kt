@@ -1,5 +1,6 @@
 package com.magic.handtime
 
+import android.os.Build
 import android.app.admin.DevicePolicyManager
 import android.content.ComponentName
 import android.content.Intent
@@ -134,8 +135,14 @@ class MainActivity : AppCompatActivity() {
                 .putInt("text_opacity", opacity)
                 .apply()
 
-            startActivity(Intent(this, BlackScreenActivity::class.java))
-            finish()
+            val serviceIntent = Intent(this, PollingService::class.java)
+if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+    startForegroundService(serviceIntent)
+} else {
+    startService(serviceIntent)
+}
+startActivity(Intent(this, BlackScreenActivity::class.java))
+finish()
         }
     }
 
