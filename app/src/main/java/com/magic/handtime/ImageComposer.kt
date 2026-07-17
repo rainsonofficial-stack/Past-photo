@@ -15,8 +15,6 @@ import kotlin.random.Random
 
 object ImageComposer {
 
-    // Temporary debug string so we can see what happened with the font on the
-    // last compose — shown as a Toast in BlackScreenActivity for testing.
     var lastFontDebugInfo: String = ""
 
     fun composeImage(
@@ -44,14 +42,14 @@ object ImageComposer {
         val boxWidth = (boxRight - boxLeft).coerceAtLeast(10f)
         val boxHeight = (boxBottom - boxTop).coerceAtLeast(10f)
 
-        val typeface = loadHandwritingTypeface(context)
+        val typefaceVariants = loadHandwritingTypefaceVariants(context)
 
         val baseColor = try { Color.parseColor(textColorHex) } catch (e: Exception) { Color.BLACK }
         val alpha = ((opacityPct.coerceIn(0, 100)) / 100f * 255).toInt()
         val colorWithAlpha = Color.argb(alpha, Color.red(baseColor), Color.green(baseColor), Color.blue(baseColor))
 
         val paint = TextPaint(TextPaint.ANTI_ALIAS_FLAG)
-        paint.typeface = typeface
+        paint.typeface = typefaceVariants.first()
         paint.color = colorWithAlpha
 
         val displayText = buildDisplayText(text)
@@ -82,7 +80,7 @@ object ImageComposer {
         canvas.save()
         canvas.rotate(rotationDeg, centerX, centerY)
         canvas.translate(textX, textY)
-        drawHandwrittenText(canvas, finalLayout, paint, displayText, colorWithAlpha)
+        drawHandwrittenText(canvas, finalLayout, paint, displayText, colorWithAlpha, typefaceVariants)
         canvas.restore()
 
         return bitmap
@@ -132,8 +130,6 @@ object ImageComposer {
     }
 
     private fun buildLayout(text: String, paint: TextPaint, width: Int): StaticLayout {
-        // Reduced line spacing multiplier (was 1.05f) to bring lines closer
-        // together for a tighter, more natural handwriting look.
         return StaticLayout.Builder.obtain(text, 0, text.length, paint, width.coerceAtLeast(1))
             .setAlignment(Layout.Alignment.ALIGN_CENTER)
             .setLineSpacing(0f, 0.85f)
@@ -141,7 +137,14 @@ object ImageComposer {
             .build()
     }
 
-    private fun drawHandwrittenText(canvas: Canvas, layout: StaticLayout, basePaint: TextPaint, fullText: String, colorWithAlpha: Int) {
+    private fun drawHandwrittenText(
+        canvas: Canvas,
+        layout: StaticLayout,
+        basePaint: TextPaint,
+        fullText: String,
+        colorWithAlpha: Int,
+        typefaceVariants: List<Typeface>
+    ) {
         val random = Random(System.nanoTime())
         for (lineIndex in 0 until layout.lineCount) {
             val lineStart = layout.getLineStart(lineIndex)
@@ -156,17 +159,23 @@ object ImageComposer {
                 val charPaint = TextPaint(basePaint)
                 charPaint.color = colorWithAlpha
 
+                // Pick one of the pre-built weight-variant Typeface instances —
+                // this is what actually makes the weight difference render,
+                // unlike setting fontVariationSettings on the fly.
+                charPaint.typeface = typefaceVariants[random.nextInt(typefaceVariants.size)]
+
                 val sizeJitter = basePaint.textSize * (0.94f + random.nextFloat() * 0.12f)
                 charPaint.textSize = sizeJitter
 
                 val baselineJitter = (random.nextFloat() * basePaint.textSize * 0.06f) - (basePaint.textSize * 0.03f)
 
-                val weight = 350 + random.nextInt(300)
-                try {
-                    charPaint.fontVariationSettings = "'wght' $weight"
-                } catch (e: Exception) { /* font may not support the axis; ignore */ }
+                val rotJitter = (random.nextFloat() * 8f) - 4f
 
-                val rotJitter = (random.nextFloat() * 6f) - 3f
+                // Slant/skew jitter — distorts the letter shape itself, unlike
+                // weight which only changes stroke thickness.
+                val skewJitter = (random.nextFloat() * 0.3f) - 0.15f
+                charPaint.textSkewX = skewJitter
+
                 val charWidth = charPaint.measureText(ch.toString())
 
                 canvas.save()
@@ -180,14 +189,17 @@ object ImageComposer {
         }
     }
 
-    private fun loadHandwritingTypeface(context: Context): Typeface {
+    // Builds several distinct Typeface instances at different weights, baked in
+    // at construction time via Typeface.Builder — far more reliable across
+    // devices than calling setFontVariationSettings on a shared Paint.
+    private fun loadHandwritingTypefaceVariants(context: Context): List<Typeface> {
         return try {
             val assetManager = context.assets
             val fontFiles = assetManager.list("fonts") ?: emptyArray()
 
             if (fontFiles.isEmpty()) {
-                lastFontDebugInfo = "No files found in assets/fonts/ — check the folder exists in the APK"
-                return Typeface.DEFAULT
+                lastFontDebugInfo = "No files found in assets/fonts/"
+                return listOf(Typeface.DEFAULT)
             }
 
             val fontFile = fontFiles.firstOrNull {
@@ -195,16 +207,33 @@ object ImageComposer {
             }
 
             if (fontFile == null) {
-                lastFontDebugInfo = "Found files but none are .ttf/.otf: ${fontFiles.joinToString()}"
-                return Typeface.DEFAULT
+                lastFontDebugInfo = "No .ttf/.otf found: ${fontFiles.joinToString()}"
+                return listOf(Typeface.DEFAULT)
             }
 
-            val typeface = Typeface.createFromAsset(assetManager, "fonts/$fontFile")
-            lastFontDebugInfo = "Loaded font: $fontFile"
-            typeface
+            val weights = listOf(300, 400, 500, 600, 700, 800)
+            val variants = weights.mapNotNull { weight ->
+                try {
+                    Typeface.Builder(assetManager, "fonts/$fontFile")
+                        .setFontVariationSettings("'wght' $weight")
+                        .build()
+                } catch (e: Exception) {
+                    null
+                }
+            }
+
+            if (variants.isEmpty()) {
+                // Variable axis build failed entirely — fall back to the font
+                // at its default weight, still better than the system font.
+                lastFontDebugInfo = "Variation build failed, using default weight"
+                listOf(Typeface.createFromAsset(assetManager, "fonts/$fontFile"))
+            } else {
+                lastFontDebugInfo = "Loaded ${variants.size} weight variants of $fontFile"
+                variants
+            }
         } catch (e: Exception) {
             lastFontDebugInfo = "Font load FAILED: ${e.javaClass.simpleName} - ${e.message}"
-            Typeface.DEFAULT
+            listOf(Typeface.DEFAULT)
         }
     }
 }
