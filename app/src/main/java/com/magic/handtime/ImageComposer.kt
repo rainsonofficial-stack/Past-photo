@@ -12,6 +12,7 @@ import android.text.Layout
 import android.text.StaticLayout
 import android.text.TextPaint
 import androidx.exifinterface.media.ExifInterface
+import kotlin.math.sin
 import kotlin.random.Random
 
 object ImageComposer {
@@ -148,11 +149,25 @@ object ImageComposer {
         fillOpacity: Float
     ) {
         val random = Random(System.nanoTime())
+
         for (lineIndex in 0 until layout.lineCount) {
             val lineStart = layout.getLineStart(lineIndex)
             val lineEnd = layout.getLineEnd(lineIndex)
             val lineBaseline = layout.getLineBaseline(lineIndex).toFloat()
-            var cursorX = layout.getLineLeft(lineIndex)
+            val lineLeft = layout.getLineLeft(lineIndex)
+            val lineRight = layout.getLineRight(lineIndex)
+            val lineWidth = (lineRight - lineLeft).coerceAtLeast(1f)
+
+            // Whole-line sine-wave drift: real handwriting doesn't sit on a
+            // perfectly flat baseline — it gently rises and falls across the
+            // word/line. A random phase and amplitude per line makes each
+            // render look like a distinct, natural stroke of the pen rather
+            // than a rendered font sitting on a ruler-straight line.
+            val driftAmplitude = basePaint.textSize * (0.03f + random.nextFloat() * 0.05f) // ~3-8% of text size
+            val driftPhase = random.nextFloat() * (2 * Math.PI).toFloat()
+            val driftFrequency = 1.5f + random.nextFloat() * 1.5f // 1.5–3 cycles across the line
+
+            var cursorX = lineLeft
 
             for (i in lineStart until lineEnd) {
                 val ch = fullText[i]
@@ -160,12 +175,27 @@ object ImageComposer {
 
                 val charPaint = TextPaint(basePaint)
                 charPaint.style = Paint.Style.FILL
-                charPaint.color = Color.argb((fillOpacity * 255).toInt(), Color.red(baseColor), Color.green(baseColor), Color.blue(baseColor))
+
+                // Ink color jitter: real ink is rarely pure flat black/chosen
+                // color — slight per-letter darkness/lightness variation (as
+                // if pen pressure or ink flow varied) reads as more organic
+                // than a perfectly uniform fill.
+                val shade = 0.85f + random.nextFloat() * 0.3f // 0.85x–1.15x
+                val jitteredColor = Color.rgb(
+                    (Color.red(baseColor) * shade).toInt().coerceIn(0, 255),
+                    (Color.green(baseColor) * shade).toInt().coerceIn(0, 255),
+                    (Color.blue(baseColor) * shade).toInt().coerceIn(0, 255)
+                )
+                charPaint.color = Color.argb((fillOpacity * 255).toInt(), Color.red(jitteredColor), Color.green(jitteredColor), Color.blue(jitteredColor))
 
                 val sizeJitter = basePaint.textSize * (0.94f + random.nextFloat() * 0.12f)
                 charPaint.textSize = sizeJitter
 
-                val baselineJitter = (random.nextFloat() * basePaint.textSize * 0.06f) - (basePaint.textSize * 0.03f)
+                val perCharBaselineJitter = (random.nextFloat() * basePaint.textSize * 0.06f) - (basePaint.textSize * 0.03f)
+
+                // Line-wide drift contribution at this letter's horizontal position.
+                val progress = ((cursorX - lineLeft) / lineWidth).coerceIn(0f, 1f)
+                val lineDrift = driftAmplitude * sin(driftPhase + progress * driftFrequency * 2 * Math.PI.toFloat())
 
                 val rotJitter = (random.nextFloat() * 8f) - 4f
 
@@ -175,26 +205,17 @@ object ImageComposer {
                 val charWidth = charPaint.measureText(ch.toString())
 
                 canvas.save()
-                canvas.translate(cursorX, lineBaseline + baselineJitter)
+                canvas.translate(cursorX, lineBaseline + perCharBaselineJitter + lineDrift)
                 canvas.rotate(rotJitter, charWidth / 2f, -basePaint.textSize / 3f)
 
-                // Fill pass at the user's chosen opacity.
                 canvas.drawText(ch.toString(), 0f, 0f, charPaint)
 
-                // Bold/outline pass: calculates the exact stroke alpha needed so
-                // that, after blending over the fill (src-over compositing),
-                // the OVERLAP region lands at a controlled target — not wherever
-                // naive alpha-stacking happens to land (which was jumping to
-                // ~94% at 75% opacity and looking fake).
                 if (random.nextFloat() < 0.3f) {
-                    // Random 7–10% boost target for the overlapped area.
                     val boostFraction = 0.07f + random.nextFloat() * 0.03f
                     val targetOverlap = (fillOpacity + boostFraction).coerceAtMost(1f)
 
-                    // Reverse the src-over formula to find the stroke alpha that
-                    // produces exactly targetOverlap when composited over fillOpacity.
                     val strokeAlpha = if (fillOpacity >= 0.999f) {
-                        0f // fill is already fully opaque, no visible effect possible/needed
+                        0f
                     } else {
                         ((targetOverlap - fillOpacity) / (1f - fillOpacity)).coerceIn(0f, 1f)
                     }
@@ -203,7 +224,7 @@ object ImageComposer {
                         val boldPaint = TextPaint(charPaint)
                         boldPaint.style = Paint.Style.STROKE
                         boldPaint.strokeWidth = charPaint.textSize * (0.015f + random.nextFloat() * 0.01f)
-                        boldPaint.color = Color.argb((strokeAlpha * 255).toInt(), Color.red(baseColor), Color.green(baseColor), Color.blue(baseColor))
+                        boldPaint.color = Color.argb((strokeAlpha * 255).toInt(), Color.red(jitteredColor), Color.green(jitteredColor), Color.blue(jitteredColor))
                         canvas.drawText(ch.toString(), 0f, 0f, boldPaint)
                     }
                 }
