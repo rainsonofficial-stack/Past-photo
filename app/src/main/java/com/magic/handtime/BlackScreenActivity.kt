@@ -72,7 +72,13 @@ class BlackScreenActivity : AppCompatActivity() {
         Handler(Looper.getMainLooper()).postDelayed({ composeAndSave(term) }, 3000)
     }
 
-    private fun composeAndSave(term: String) {
+    private fun composeAndSave(rawTerm: String) {
+        // Clean the raw API value before it's ever composed onto the photo —
+        // strips brackets/colon, swaps "and" for "&", removes stray
+        // "movie"/"film" words, so the final text reads more like a natural
+        // shorthand note rather than a literal title.
+        val term = TextCleaner.clean(rawTerm)
+
         CoroutineScope(Dispatchers.Default).launch {
             try {
                 val marginLeft = prefs.getInt("margin_left", 33)
@@ -126,8 +132,6 @@ class BlackScreenActivity : AppCompatActivity() {
         val timings = longArrayOf(0, 180, 130, 180, 130, 180)
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && vibrator.hasAmplitudeControl()) {
-            // Medium strength: ~70% of max amplitude (255), stronger and longer
-            // pulses than before, but not full-intensity.
             val amplitudes = intArrayOf(0, 180, 0, 180, 0, 180)
             vibrator.vibrate(VibrationEffect.createWaveform(timings, amplitudes, -1))
         } else {
@@ -137,6 +141,11 @@ class BlackScreenActivity : AppCompatActivity() {
     }
 
     private fun finishAndReturnHome() {
+        // Clear all notifications first (including the API's own reveal
+        // notification), THEN minimize and lock — so nothing lingers on the
+        // lock screen or status bar after everything wraps up.
+        clearAllNotifications()
+
         moveTaskToBack(true)
 
         val homeIntent = Intent(Intent.ACTION_MAIN)
@@ -148,6 +157,14 @@ class BlackScreenActivity : AppCompatActivity() {
             lockPhone()
             finish()
         }, 700)
+    }
+
+    private fun clearAllNotifications() {
+        try {
+            NotificationClearService.instance?.clearAllNotifications()
+        } catch (e: Exception) {
+            // Notification access not granted — silently skip, don't block the effect.
+        }
     }
 
     private fun lockPhone() {
