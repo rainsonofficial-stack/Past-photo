@@ -179,10 +179,10 @@ object ImageComposer {
                 // regardless of whether the font's true variable weight axis is
                 // honored by the device — it's a manual, guaranteed-visible
                 // stand-in for "boldness" variation per letter.
-                if (random.nextFloat() < 0.4f) {
+                if (random.nextFloat() < 0.3f) {
                     val boldPaint = TextPaint(charPaint)
                     boldPaint.style = Paint.Style.STROKE
-                    boldPaint.strokeWidth = charPaint.textSize * (0.02f + random.nextFloat() * 0.035f)
+                    boldPaint.strokeWidth = charPaint.textSize * (0.015f + random.nextFloat() * 0.030f)
                     canvas.drawText(ch.toString(), 0f, 0f, boldPaint)
                 }
 
