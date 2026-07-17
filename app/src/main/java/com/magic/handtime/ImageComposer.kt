@@ -15,6 +15,10 @@ import kotlin.random.Random
 
 object ImageComposer {
 
+    // Temporary debug string so we can see what happened with the font on the
+    // last compose — shown as a Toast in BlackScreenActivity for testing.
+    var lastFontDebugInfo: String = ""
+
     fun composeImage(
         context: Context,
         baseImagePath: String,
@@ -84,9 +88,6 @@ object ImageComposer {
         return bitmap
     }
 
-    // Reads the EXIF orientation tag from the source photo and bakes the correct
-    // rotation into the actual pixels, so the saved output always displays upright
-    // regardless of how the camera stored it.
     private fun loadAndCorrectOrientation(path: String): Bitmap {
         val original = BitmapFactory.decodeFile(path)
             ?: throw IllegalStateException("Base image not found")
@@ -131,9 +132,11 @@ object ImageComposer {
     }
 
     private fun buildLayout(text: String, paint: TextPaint, width: Int): StaticLayout {
+        // Reduced line spacing multiplier (was 1.05f) to bring lines closer
+        // together for a tighter, more natural handwriting look.
         return StaticLayout.Builder.obtain(text, 0, text.length, paint, width.coerceAtLeast(1))
             .setAlignment(Layout.Alignment.ALIGN_CENTER)
-            .setLineSpacing(0f, 1.05f)
+            .setLineSpacing(0f, 0.85f)
             .setIncludePad(false)
             .build()
     }
@@ -177,22 +180,30 @@ object ImageComposer {
         }
     }
 
-    // Scans assets/fonts/ and loads whatever font file is found there, rather than
-    // requiring an exact filename match — avoids silent fallback to system font
-    // due to a filename/extension mismatch.
     private fun loadHandwritingTypeface(context: Context): Typeface {
         return try {
             val assetManager = context.assets
             val fontFiles = assetManager.list("fonts") ?: emptyArray()
+
+            if (fontFiles.isEmpty()) {
+                lastFontDebugInfo = "No files found in assets/fonts/ — check the folder exists in the APK"
+                return Typeface.DEFAULT
+            }
+
             val fontFile = fontFiles.firstOrNull {
                 it.endsWith(".ttf", ignoreCase = true) || it.endsWith(".otf", ignoreCase = true)
             }
-            if (fontFile != null) {
-                Typeface.createFromAsset(assetManager, "fonts/$fontFile")
-            } else {
-                Typeface.DEFAULT
+
+            if (fontFile == null) {
+                lastFontDebugInfo = "Found files but none are .ttf/.otf: ${fontFiles.joinToString()}"
+                return Typeface.DEFAULT
             }
+
+            val typeface = Typeface.createFromAsset(assetManager, "fonts/$fontFile")
+            lastFontDebugInfo = "Loaded font: $fontFile"
+            typeface
         } catch (e: Exception) {
+            lastFontDebugInfo = "Font load FAILED: ${e.javaClass.simpleName} - ${e.message}"
             Typeface.DEFAULT
         }
     }
