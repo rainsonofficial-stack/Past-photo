@@ -102,6 +102,10 @@
     <Button android:id="@+id/btnDeviceAdminSettings"
         android:layout_width="match_parent" android:layout_height="wrap_content"
         android:layout_marginTop="8dp" android:text="Enable Device Admin"/>
-
+    
+<Button android:id="@+id/btnNotificationAccess"
+        android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:layout_marginTop="8dp" android:text="Enable Notification Access"/>
+    
 </LinearLayout>
 </ScrollView>
