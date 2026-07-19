@@ -6,11 +6,13 @@ import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Matrix
+import android.graphics.Paint
 import android.graphics.Typeface
 import android.text.Layout
 import android.text.StaticLayout
 import android.text.TextPaint
 import androidx.exifinterface.media.ExifInterface
+import kotlin.math.sin
 import kotlin.random.Random
 
 object ImageComposer {
@@ -42,7 +44,7 @@ object ImageComposer {
         val boxWidth = (boxRight - boxLeft).coerceAtLeast(10f)
         val boxHeight = (boxBottom - boxTop).coerceAtLeast(10f)
 
-        val typeface = loadHandwritingTypeface(context)
+        val typefaces = loadTypefaceVariations(context)
 
         val baseColor = try { Color.parseColor(textColorHex) } catch (e: Exception) { Color.BLACK }
         val opacityFraction = (opacityPct.coerceIn(0, 100)) / 100f
@@ -50,11 +52,8 @@ object ImageComposer {
         val colorWithAlpha = Color.argb(alpha, Color.red(baseColor), Color.green(baseColor), Color.blue(baseColor))
 
         val paint = TextPaint(TextPaint.ANTI_ALIAS_FLAG)
-        paint.typeface = typeface
+        paint.typeface = typefaces.first()
         paint.color = colorWithAlpha
-        // Contextual alternates + ligatures — this is what gives the font its
-        // real per-letter variation, since it's shaped as continuous text runs.
-        paint.fontFeatureSettings = "'calt' 1, 'liga' 1"
 
         val displayText = buildDisplayText(text)
 
@@ -86,7 +85,7 @@ object ImageComposer {
         textCanvas.save()
         textCanvas.rotate(rotationDeg, centerX, centerY)
         textCanvas.translate(textX, textY)
-        drawHandwrittenText(textCanvas, finalLayout, paint, displayText, baseColor, opacityFraction)
+        drawHandwrittenText(textCanvas, finalLayout, paint, displayText, baseColor, opacityFraction, typefaces)
         textCanvas.restore()
 
         val softenedTextLayer = softenLayer(textLayer, strength = 0.6f)
@@ -124,7 +123,7 @@ object ImageComposer {
             ExifInterface.ORIENTATION_ROTATE_270 -> matrix.postRotate(270f)
             ExifInterface.ORIENTATION_FLIP_HORIZONTAL -> matrix.preScale(-1f, 1f)
             ExifInterface.ORIENTATION_FLIP_VERTICAL -> matrix.preScale(1f, -1f)
-            else -> { /* no correction needed */ }
+            else -> { }
         }
 
         return if (!matrix.isIdentity) {
@@ -157,73 +156,116 @@ object ImageComposer {
             .build()
     }
 
-    // Draws each full line as ONE continuous, perfectly flat text run — no
-    // skew, rotation, or wavy baseline. The font's own contextual alternates
-    // (calt) already provide natural per-letter variation, so adding
-    // artificial wobble on top was fighting the font's design rather than
-    // complementing it.
     private fun drawHandwrittenText(
         canvas: Canvas,
         layout: StaticLayout,
         basePaint: TextPaint,
         fullText: String,
         baseColor: Int,
-        fillOpacity: Float
+        fillOpacity: Float,
+        typefaces: List<Typeface>
     ) {
         val random = Random(System.nanoTime())
 
+        // Per-CHARACTER rotation: each specific letter (A, B, C...) tracks its
+        // own independent counter through the 6 font variations. The 2nd
+        // occurrence of "a" anywhere in the text uses font 2, regardless of
+        // how many other different letters appeared between the two "a"s.
+        val perLetterCycleIndex = mutableMapOf<Char, Int>()
+
         for (lineIndex in 0 until layout.lineCount) {
             val lineStart = layout.getLineStart(lineIndex)
-            var lineEnd = layout.getLineEnd(lineIndex)
-            if (lineEnd > lineStart && fullText[lineEnd - 1] == '\n') lineEnd -= 1
-            if (lineStart >= lineEnd) continue
-
-            val lineText = fullText.substring(lineStart, lineEnd)
+            val lineEnd = layout.getLineEnd(lineIndex)
             val lineBaseline = layout.getLineBaseline(lineIndex).toFloat()
             val lineLeft = layout.getLineLeft(lineIndex)
+            val lineRight = layout.getLineRight(lineIndex)
+            val lineWidth = (lineRight - lineLeft).coerceAtLeast(1f)
 
-            val linePaint = TextPaint(basePaint)
+            // Whole-line wobble, restored — a gentle sine-wave drift across
+            // the line's baseline, on top of the per-letter jitter below.
+            val driftAmplitude = basePaint.textSize * (0.03f + random.nextFloat() * 0.05f)
+            val driftPhase = random.nextFloat() * (2 * Math.PI).toFloat()
+            val driftFrequency = 1.5f + random.nextFloat() * 1.5f
 
-            // Small per-line ink shade variation only — no geometric distortion.
-            val shade = 0.9f + random.nextFloat() * 0.2f
-            val jitteredColor = Color.rgb(
-                (Color.red(baseColor) * shade).toInt().coerceIn(0, 255),
-                (Color.green(baseColor) * shade).toInt().coerceIn(0, 255),
-                (Color.blue(baseColor) * shade).toInt().coerceIn(0, 255)
-            )
-            linePaint.color = Color.argb((fillOpacity * 255).toInt(), Color.red(jitteredColor), Color.green(jitteredColor), Color.blue(jitteredColor))
+            var cursorX = lineLeft
 
-            // Small per-line size variation only.
-            linePaint.textSize = basePaint.textSize * (0.97f + random.nextFloat() * 0.06f)
+            for (i in lineStart until lineEnd) {
+                val ch = fullText[i]
+                if (ch == '\n') continue
 
-            canvas.drawText(lineText, lineLeft, lineBaseline, linePaint)
+                val charPaint = TextPaint(basePaint)
+                charPaint.style = Paint.Style.FILL
+
+                if (ch.isLetter()) {
+                    val key = ch.lowercaseChar()
+                    val idx = perLetterCycleIndex.getOrDefault(key, 0)
+                    charPaint.typeface = typefaces[idx % typefaces.size]
+                    perLetterCycleIndex[key] = idx + 1
+                } else {
+                    charPaint.typeface = typefaces.first()
+                }
+
+                val shade = 0.85f + random.nextFloat() * 0.3f
+                val jitteredColor = Color.rgb(
+                    (Color.red(baseColor) * shade).toInt().coerceIn(0, 255),
+                    (Color.green(baseColor) * shade).toInt().coerceIn(0, 255),
+                    (Color.blue(baseColor) * shade).toInt().coerceIn(0, 255)
+                )
+                charPaint.color = Color.argb((fillOpacity * 255).toInt(), Color.red(jitteredColor), Color.green(jitteredColor), Color.blue(jitteredColor))
+
+                val sizeJitter = basePaint.textSize * (0.94f + random.nextFloat() * 0.12f)
+                charPaint.textSize = sizeJitter
+
+                val perCharBaselineJitter = (random.nextFloat() * basePaint.textSize * 0.06f) - (basePaint.textSize * 0.03f)
+
+                val progress = ((cursorX - lineLeft) / lineWidth).coerceIn(0f, 1f)
+                val lineDrift = driftAmplitude * sin(driftPhase + progress * driftFrequency * 2 * Math.PI.toFloat())
+
+                val skewJitter = (random.nextFloat() * 0.2f) - 0.1f
+                charPaint.textSkewX = skewJitter
+
+                val charWidth = charPaint.measureText(ch.toString())
+
+                canvas.save()
+                canvas.translate(cursorX, lineBaseline + perCharBaselineJitter + lineDrift)
+                canvas.drawText(ch.toString(), 0f, 0f, charPaint)
+                canvas.restore()
+
+                cursorX += charWidth
+            }
         }
     }
 
-    private fun loadHandwritingTypeface(context: Context): Typeface {
+    private fun loadTypefaceVariations(context: Context): List<Typeface> {
         return try {
             val assetManager = context.assets
-            val fontFiles = assetManager.list("fonts") ?: emptyArray()
+            val fontFiles = (assetManager.list("fonts") ?: emptyArray())
+                .filter { it.endsWith(".ttf", ignoreCase = true) || it.endsWith(".otf", ignoreCase = true) }
+                .sorted()
 
             if (fontFiles.isEmpty()) {
-                lastFontDebugInfo = "No files found in assets/fonts/"
-                return Typeface.DEFAULT
+                lastFontDebugInfo = "No font files found in assets/fonts/"
+                return listOf(Typeface.DEFAULT)
             }
 
-            val fontFile = fontFiles.firstOrNull {
-                it.endsWith(".ttf", ignoreCase = true) || it.endsWith(".otf", ignoreCase = true)
+            val loaded = fontFiles.mapNotNull { file ->
+                try {
+                    Typeface.createFromAsset(assetManager, "fonts/$file")
+                } catch (e: Exception) {
+                    null
+                }
             }
 
-            if (fontFile == null) {
-                lastFontDebugInfo = "No .ttf/.otf found: ${fontFiles.joinToString()}"
-                return Typeface.DEFAULT
+            if (loaded.isEmpty()) {
+                lastFontDebugInfo = "Found font files but none loaded successfully"
+                listOf(Typeface.DEFAULT)
+            } else {
+                lastFontDebugInfo = "Loaded ${loaded.size} variation(s): ${fontFiles.joinToString()}"
+                loaded
             }
-
-            lastFontDebugInfo = "Loaded $fontFile"
-            Typeface.createFromAsset(assetManager, "fonts/$fontFile")
         } catch (e: Exception) {
             lastFontDebugInfo = "Font load FAILED: ${e.javaClass.simpleName} - ${e.message}"
-            Typeface.DEFAULT
+            listOf(Typeface.DEFAULT)
         }
     }
 }
