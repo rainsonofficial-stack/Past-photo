@@ -16,9 +16,35 @@ object ImageComposer {
 
     var lastFontDebugInfo: String = ""
 
+    // Per-font thickness control (index = alphabetical font file order,
+    // variation1.ttf = 0, variation2.ttf = 1, etc). Extra stroke width as a
+    // fraction of text size. 0f = no added thickness.
+    private val FONT_THICKNESS = listOf(
+        0.00f, // variation1
+        0.015f, // variation2
+        0.00f, // variation3
+        0.030f, // variation4 (+20% from 0.025f baseline)
+        0.033f, // variation5 (+30%)
+        0.033f  // variation6 (+30%)
+    )
+
+    // Per-font SIZE multiplier, same index convention. 1.0f = unchanged,
+    // >1.0f = bigger, <1.0f = smaller. Applied on top of the normal per-letter
+    // jitter and included in width measurement, so wrapping/shrink-to-fit
+    // still accounts for it correctly — no overflow risk.
+    private val FONT_SIZE_MULTIPLIER = listOf(
+        1.20f, // variation1: +20%
+        0.75f, // variation2: -25%
+        0.90f, // variation3: -10%
+        1.00f, // variation4: unchanged
+        1.20f, // variation5: +20%
+        2.00f  // variation6: +100%
+    )
+
     private data class CharSpec(
         val ch: Char,
         val typeface: Typeface,
+        val typefaceIndex: Int,
         val sizeFactor: Float,
         val skew: Float,
         val baselineJitter: Float,
@@ -58,11 +84,6 @@ object ImageComposer {
 
         val random = Random(System.nanoTime())
 
-        // Pre-generate ALL per-character rendering parameters ONCE (font,
-        // size jitter, skew, color jitter). These exact same values are used
-        // both to MEASURE text during wrapping/sizing AND to actually draw
-        // it — guaranteeing what gets measured is exactly what gets rendered,
-        // eliminating the width mismatch that caused overflow before.
         val words = buildWordCharSpecs(text, typefaces, baseColor, alpha, random)
 
         val (finalLines, finalTextSize) = fitTextToBox(words, boxWidth, boxHeight, typefaces.first())
@@ -94,10 +115,14 @@ object ImageComposer {
         return bitmap
     }
 
-    // Builds one CharSpec per letter (font assignment cycles per letter
-    // identity, same rule as before — 2nd "a" anywhere uses font 2, etc.),
-    // plus one CharSpec per space between words. Punctuation/digits use the
-    // first typeface with no skew.
+    private fun thicknessFor(index: Int): Float {
+        return if (index < FONT_THICKNESS.size) FONT_THICKNESS[index] else 0f
+    }
+
+    private fun sizeMultiplierFor(index: Int): Float {
+        return if (index < FONT_SIZE_MULTIPLIER.size) FONT_SIZE_MULTIPLIER[index] else 1f
+    }
+
     private fun buildWordCharSpecs(
         text: String,
         typefaces: List<Typeface>,
@@ -111,20 +136,28 @@ object ImageComposer {
         return rawWords.map { word ->
             word.map { ch ->
                 val typeface: Typeface
+                val typefaceIndex: Int
                 val skew: Float
                 if (ch.isLetter()) {
                     val key = ch.lowercaseChar()
                     val idx = perLetterCycleIndex.getOrDefault(key, 0)
-                    typeface = typefaces[idx % typefaces.size]
+                    typefaceIndex = idx % typefaces.size
+                    typeface = typefaces[typefaceIndex]
                     perLetterCycleIndex[key] = idx + 1
                     skew = (random.nextFloat() * 0.2f) - 0.1f
                 } else {
+                    typefaceIndex = 0
                     typeface = typefaces.first()
                     skew = 0f
                 }
 
-                val sizeFactor = 0.96f + random.nextFloat() * 0.06f // tight, width-safe
-                val baselineJitter = random.nextFloat() // 0..1, scaled at draw time
+                // Small natural jitter (±3%) combined with this font's
+                // deliberate size multiplier — both included here so wrapping
+                // and shrink-to-fit measurements already account for it.
+                val jitter = 0.96f + random.nextFloat() * 0.06f
+                val sizeFactor = jitter * sizeMultiplierFor(typefaceIndex)
+
+                val baselineJitter = random.nextFloat()
                 val shade = 0.85f + random.nextFloat() * 0.3f
                 val jitteredColor = Color.rgb(
                     (Color.red(baseColor) * shade).toInt().coerceIn(0, 255),
@@ -133,7 +166,7 @@ object ImageComposer {
                 )
                 val colorWithAlpha = Color.argb(alpha, Color.red(jitteredColor), Color.green(jitteredColor), Color.blue(jitteredColor))
 
-                CharSpec(ch, typeface, sizeFactor, skew, baselineJitter, colorWithAlpha)
+                CharSpec(ch, typeface, typefaceIndex, sizeFactor, skew, baselineJitter, colorWithAlpha)
             }
         }
     }
@@ -153,9 +186,6 @@ object ImageComposer {
         return p.measureText(" ")
     }
 
-    // Wraps words into lines at a given trial size. Falls back to breaking
-    // mid-word only if a single word is wider than the box even at this
-    // size — never silently drops/cuts text.
     private fun wrapAtSize(
         words: List<List<CharSpec>>,
         trialSize: Float,
@@ -171,8 +201,6 @@ object ImageComposer {
             val wordWidth = word.sumOf { measureChar(it, trialSize).toDouble() }.toFloat()
 
             if (wordWidth > boxWidth) {
-                // Single word too long even alone — break it mid-word as a
-                // last resort so nothing gets silently cut off.
                 if (currentLine.isNotEmpty()) {
                     lines.add(currentLine)
                     currentLine = mutableListOf()
@@ -205,7 +233,7 @@ object ImageComposer {
             }
 
             if (currentLine.isNotEmpty()) {
-                currentLine.add(CharSpec(' ', referenceTypeface, 1f, 0f, 0f, Color.TRANSPARENT))
+                currentLine.add(CharSpec(' ', referenceTypeface, 0, 1f, 0f, 0f, Color.TRANSPARENT))
                 currentWidth += spaceWidth
             }
             currentLine.addAll(word)
@@ -220,11 +248,6 @@ object ImageComposer {
         return line.sumOf { measureChar(it, trialSize).toDouble() }.toFloat()
     }
 
-    // Binary-searches the largest text size where the wrapped result fits
-    // both the box width AND height. If text is too long to fit even at the
-    // smallest allowed size, uses the smallest size anyway (last resort —
-    // still wraps rather than cutting off, may extend slightly past bottom
-    // margin only in extreme cases).
     private fun fitTextToBox(
         words: List<List<CharSpec>>,
         boxWidth: Float,
@@ -274,11 +297,8 @@ object ImageComposer {
 
         for (line in lines) {
             val totalWidth = lineWidth(line, textSize)
-            // Center each line horizontally within the box.
             var cursorX = boxLeft + (boxWidth - totalWidth) / 2f
 
-            // Whole-line wobble, restored — safe now since it only affects
-            // vertical position, never width/wrapping.
             val driftAmplitude = textSize * (0.03f + random.nextFloat() * 0.05f)
             val driftPhase = random.nextFloat() * (2 * Math.PI).toFloat()
             val driftFrequency = 1.5f + random.nextFloat() * 1.5f
@@ -289,6 +309,7 @@ object ImageComposer {
                 p.typeface = spec.typeface
                 p.textSize = charSize
                 p.textSkewX = spec.skew
+                p.style = Paint.Style.FILL
                 p.color = spec.colorOverride
 
                 val charWidth = p.measureText(spec.ch.toString())
@@ -300,7 +321,17 @@ object ImageComposer {
 
                     canvas.save()
                     canvas.translate(cursorX, y + baselineJitter + lineDrift)
+
                     canvas.drawText(spec.ch.toString(), 0f, 0f, p)
+
+                    val thickness = thicknessFor(spec.typefaceIndex)
+                    if (thickness > 0f) {
+                        val strokePaint = Paint(p)
+                        strokePaint.style = Paint.Style.STROKE
+                        strokePaint.strokeWidth = charSize * thickness
+                        canvas.drawText(spec.ch.toString(), 0f, 0f, strokePaint)
+                    }
+
                     canvas.restore()
                 }
 
