@@ -21,11 +21,11 @@ object ImageComposer {
     // fraction of text size. 0f = no added thickness.
     private val FONT_THICKNESS = listOf(
         0.00f, // variation1
-        0.015f, // variation2
-        0.00f, // variation3
+        0.020f, // variation2
+        0.015f, // variation3
         0.030f, // variation4 (+20% from 0.025f baseline)
         0.033f, // variation5 (+30%)
-        0.033f  // variation6 (+30%)
+        0.028f  // variation6 
     )
 
     // Per-font SIZE multiplier, same index convention. 1.0f = unchanged,
@@ -33,7 +33,7 @@ object ImageComposer {
     // jitter and included in width measurement, so wrapping/shrink-to-fit
     // still accounts for it correctly — no overflow risk.
     private val FONT_SIZE_MULTIPLIER = listOf(
-        1.20f, // variation1: +20%
+        1.30f, // variation1: +30%
         0.75f, // variation2: -25%
         0.90f, // variation3: -10%
         1.00f, // variation4: unchanged
