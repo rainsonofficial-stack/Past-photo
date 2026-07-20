@@ -16,29 +16,22 @@ object ImageComposer {
 
     var lastFontDebugInfo: String = ""
 
-    // Per-font thickness control (index = alphabetical font file order,
-    // variation1.ttf = 0, variation2.ttf = 1, etc). Extra stroke width as a
-    // fraction of text size. 0f = no added thickness.
     private val FONT_THICKNESS = listOf(
         0.00f, // variation1
-        0.020f, // variation2
+        0.022f, // variation2
         0.015f, // variation3
-        0.030f, // variation4 (+20% from 0.025f baseline)
-        0.033f, // variation5 (+30%)
-        0.028f  // variation6 
+        0.030f, // variation4
+        0.033f, // variation5
+        0.028f  // variation6
     )
 
-    // Per-font SIZE multiplier, same index convention. 1.0f = unchanged,
-    // >1.0f = bigger, <1.0f = smaller. Applied on top of the normal per-letter
-    // jitter and included in width measurement, so wrapping/shrink-to-fit
-    // still accounts for it correctly — no overflow risk.
     private val FONT_SIZE_MULTIPLIER = listOf(
-        1.30f, // variation1: +30%
-        0.75f, // variation2: -25%
-        0.90f, // variation3: -10%
-        1.00f, // variation4: unchanged
-        1.20f, // variation5: +20%
-        2.00f  // variation6: +100%
+        1.30f, // variation1
+        0.75f, // variation2
+        0.90f, // variation3
+        1.00f, // variation4
+        1.20f, // variation5
+        2.00f  // variation6
     )
 
     private data class CharSpec(
@@ -123,6 +116,12 @@ object ImageComposer {
         return if (index < FONT_SIZE_MULTIPLIER.size) FONT_SIZE_MULTIPLIER[index] else 1f
     }
 
+    // EVERY character — letters, digits, symbols, punctuation — goes through
+    // the same independent per-character rotation. Each distinct character
+    // (case-insensitive for letters, exact match otherwise) tracks its own
+    // counter through the 6 font variations, advancing every time that exact
+    // character appears anywhere in the text, regardless of position or what
+    // other characters appear in between.
     private fun buildWordCharSpecs(
         text: String,
         typefaces: List<Typeface>,
@@ -130,30 +129,21 @@ object ImageComposer {
         alpha: Int,
         random: Random
     ): List<List<CharSpec>> {
-        val perLetterCycleIndex = mutableMapOf<Char, Int>()
+        val perCharCycleIndex = mutableMapOf<Char, Int>()
         val rawWords = text.trim().split(Regex("\\s+")).filter { it.isNotBlank() }
 
         return rawWords.map { word ->
             word.map { ch ->
-                val typeface: Typeface
-                val typefaceIndex: Int
-                val skew: Float
-                if (ch.isLetter()) {
-                    val key = ch.lowercaseChar()
-                    val idx = perLetterCycleIndex.getOrDefault(key, 0)
-                    typefaceIndex = idx % typefaces.size
-                    typeface = typefaces[typefaceIndex]
-                    perLetterCycleIndex[key] = idx + 1
-                    skew = (random.nextFloat() * 0.2f) - 0.1f
-                } else {
-                    typefaceIndex = 0
-                    typeface = typefaces.first()
-                    skew = 0f
-                }
+                val key = if (ch.isLetter()) ch.lowercaseChar() else ch
+                val idx = perCharCycleIndex.getOrDefault(key, 0)
+                val typefaceIndex = idx % typefaces.size
+                val typeface = typefaces[typefaceIndex]
+                perCharCycleIndex[key] = idx + 1
 
-                // Small natural jitter (±3%) combined with this font's
-                // deliberate size multiplier — both included here so wrapping
-                // and shrink-to-fit measurements already account for it.
+                // Skew only applied to letters — keeps digits/symbols upright
+                // and legible, purely a cosmetic choice, not a cycling exclusion.
+                val skew = if (ch.isLetter()) (random.nextFloat() * 0.2f) - 0.1f else 0f
+
                 val jitter = 0.96f + random.nextFloat() * 0.06f
                 val sizeFactor = jitter * sizeMultiplierFor(typefaceIndex)
 
